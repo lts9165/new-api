@@ -113,10 +113,10 @@ func DirectConsume(c *gin.Context) {
 	// 获取模型价格配置
 	modelRatio, _ := ratio_setting.GetModelRatio(modelName)
 	completionRatio := ratio_setting.GetCompletionRatio(modelName)
-	cacheRatio := ratio_setting.GetCacheRatio(modelName)
-	imageRatio := ratio_setting.GetImageRatio(modelName)
+	cacheRatio, _ := ratio_setting.GetCacheRatio(modelName)
+	imageRatio, _ := ratio_setting.GetImageRatio(modelName)
 	groupRatio := ratio_setting.GetGroupRatio(group)
-	modelPrice, usePrice := ratio_setting.GetModelPrice(modelName)
+	modelPrice, usePrice := ratio_setting.GetModelPrice(modelName, false)
 
 	var quota int
 	if !usePrice {
@@ -187,10 +187,11 @@ func DirectConsume(c *gin.Context) {
 		UserId:            user.Id,
 		TokenId:           token.Id,
 		TokenKey:          req.TokenKey,
-		Group:             group,
+		UsingGroup:        group,
+		UserGroup:         group,
 		TokenUnlimited:    token.UnlimitedQuota,
 		IsStream:          false,
-		UpstreamModelName: modelName,
+		OriginModelName:   modelName,
 		StartTime:         time.Now(),
 		FirstResponseTime: time.Now(),
 	}
@@ -205,14 +206,13 @@ func DirectConsume(c *gin.Context) {
 		return
 	}
 
-	// 9. 更新用户和渠道统计
+	// 9. 更新用户统计
 	model.UpdateUserUsedQuotaAndRequestCount(user.Id, quota)
-	model.CacheUpdateUserQuota(user.Id)
 
 	// 10. 记录消费日志
 	if common.LogConsumeEnabled {
 		otherInfo := service.GenerateTextOtherInfo(c, relayInfo, modelRatio, groupRatio,
-			completionRatio, float64(cacheTokens), cacheRatio, modelPrice, 1.0)
+			completionRatio, cacheTokens, cacheRatio, modelPrice, 1.0)
 
 		content := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
 		if usePrice {
