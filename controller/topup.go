@@ -490,13 +490,23 @@ func GetTopUpStatus(c *gin.Context) {
 
 // XunhuPayNotify 虎皮椒支付回调
 func XunhuPayNotify(c *gin.Context) {
-	// 获取所有POST参数
+	// 解析表单（支持POST和GET）
+	if err := c.Request.ParseForm(); err != nil {
+		log.Printf("虎皮椒回调: 解析表单失败 %v", err)
+		c.String(200, "fail")
+		return
+	}
+
+	// 获取所有参数（同时支持POST和GET）
 	params := make(map[string]string)
 	for key, values := range c.Request.Form {
 		if len(values) > 0 {
 			params[key] = values[0]
 		}
 	}
+
+	// 打印收到的所有参数用于调试
+	log.Printf("虎皮椒回调: 收到参数 %+v", params)
 
 	// 获取虎皮椒客户端
 	client := service.GetXunhuPayClient()
@@ -508,7 +518,7 @@ func XunhuPayNotify(c *gin.Context) {
 
 	// 验证签名
 	if !client.VerifyCallback(params) {
-		log.Println("虎皮椒回调签名验证失败")
+		log.Printf("虎皮椒回调签名验证失败: params=%+v", params)
 		c.String(200, "fail")
 		return
 	}
@@ -517,7 +527,7 @@ func XunhuPayNotify(c *gin.Context) {
 	tradeOrderID := params["trade_order_id"]
 	status := params["status"]
 
-	log.Printf("虎皮椒回调: 订单号=%s, 状态=%s", tradeOrderID, status)
+	log.Printf("虎皮椒回调: 订单号=%s, 状态=%s, 所有参数=%+v", tradeOrderID, status, params)
 
 	// 只处理支付成功的回调
 	if status != "OD" { // OD表示支付成功

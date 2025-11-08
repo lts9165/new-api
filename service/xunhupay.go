@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -222,7 +223,16 @@ func (c *XunhuPayClient) VerifyCallback(callback map[string]string) bool {
 		return false
 	}
 
-	// 移除hash字段后验证
-	delete(callback, "hash")
-	return c.VerifyHash(callback, hash)
+	// 创建副本，避免修改原始map
+	paramsCopy := make(map[string]string)
+	for k, v := range callback {
+		if k != "hash" {
+			paramsCopy[k] = v
+		}
+	}
+
+	calculatedHash := c.GenerateHash(paramsCopy)
+	log.Printf("虎皮椒签名验证: 收到hash=%s, 计算hash=%s, 参数=%+v", hash, calculatedHash, paramsCopy)
+
+	return calculatedHash == hash
 }
