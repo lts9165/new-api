@@ -1,0 +1,258 @@
+package controller
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/common/logger"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/relaycommon"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+)
+
+type DirectConsumeRequest struct {
+	TokenKey         string `json:"token" binding:"required"`
+	Model            string `json:"model" binding:"required"`
+	PromptTokens     int    `json:"prompt_tokens" binding:"required,min=0"`
+	CompletionTokens int    `json:"completion_tokens" binding:"required,min=0"`
+	CacheTokens      int    `json:"cache_tokens"`
+	ImageTokens      int    `json:"image_tokens"`
+}
+
+type DirectConsumeResponse struct {
+	Success          bool   `json:"success"`
+	Message          string `json:"message,omitempty"`
+	Quota            int    `json:"quota"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	ModelName        string `json:"model_name"`
+	UserQuota        int    `json:"user_quota"`
+	TokenQuota       int    `json:"token_quota"`
+}
+
+// DirectConsume 直接扣费接口，不调用上游API，仅根据传入的tokens数据进行扣费
+func DirectConsume(c *gin.Context) {
+	var req DirectConsumeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, DirectConsumeResponse{
+			Success: false,
+			Message: fmt.Sprintf("invalid request: %v", err),
+		})
+		return
+	}
+
+	// 1. 验证令牌
+	token, err := model.GetTokenByKey(req.TokenKey)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, DirectConsumeResponse{
+			Success: false,
+			Message: "invalid token",
+		})
+		return
+	}
+
+	if token.Status != common.TokenStatusEnabled {
+		c.JSON(http.StatusForbidden, DirectConsumeResponse{
+			Success: false,
+			Message: "token is disabled",
+		})
+		return
+	}
+
+	// 检查令牌是否过期
+	if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {
+		c.JSON(http.StatusForbidden, DirectConsumeResponse{
+			Success: false,
+			Message: "token has expired",
+		})
+		return
+	}
+
+	// 2. 获取用户信息
+	user, err := model.GetUserById(token.UserId, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DirectConsumeResponse{
+			Success: false,
+			Message: "failed to get user info",
+		})
+		return
+	}
+
+	if user.Status != common.UserStatusEnabled {
+		c.JSON(http.StatusForbidden, DirectConsumeResponse{
+			Success: false,
+			Message: "user is disabled",
+		})
+		return
+	}
+
+	// 3. 获取用户组信息
+	group, err := model.GetGroupByUserId(user.Id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DirectConsumeResponse{
+			Success: false,
+			Message: "failed to get user group",
+		})
+		return
+	}
+
+	// 4. 计算消耗
+	modelName := req.Model
+	promptTokens := req.PromptTokens
+	completionTokens := req.CompletionTokens
+	cacheTokens := req.CacheTokens
+	imageTokens := req.ImageTokens
+	totalTokens := promptTokens + completionTokens
+
+	// 获取模型价格配置
+	modelRatio, _ := ratio_setting.GetModelRatio(modelName)
+	completionRatio := ratio_setting.GetCompletionRatio(modelName)
+	cacheRatio := ratio_setting.GetCacheRatio(modelName)
+	imageRatio := ratio_setting.GetImageRatio(modelName)
+	groupRatio := ratio_setting.GetGroupRatio(group)
+	modelPrice, usePrice := ratio_setting.GetModelPrice(modelName)
+
+	var quota int
+	if !usePrice {
+		// 基于倍率模式计算
+		baseTokens := promptTokens - cacheTokens - imageTokens
+		if baseTokens < 0 {
+			baseTokens = 0
+		}
+
+		// 使用 decimal 进行高精度计算
+		promptQuotaDec := decimal.NewFromInt(int64(baseTokens)).
+			Add(decimal.NewFromInt(int64(cacheTokens)).Mul(decimal.NewFromFloat(cacheRatio))).
+			Add(decimal.NewFromInt(int64(imageTokens)).Mul(decimal.NewFromFloat(imageRatio)))
+
+		completionQuotaDec := decimal.NewFromInt(int64(completionTokens)).
+			Mul(decimal.NewFromFloat(completionRatio))
+
+		totalQuotaDec := promptQuotaDec.Add(completionQuotaDec).
+			Mul(decimal.NewFromFloat(modelRatio)).
+			Mul(decimal.NewFromFloat(groupRatio))
+
+		quota = int(totalQuotaDec.IntPart())
+	} else {
+		// 基于价格模式计算
+		totalQuotaDec := decimal.NewFromFloat(modelPrice).
+			Mul(decimal.NewFromInt(int64(totalTokens))).
+			Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+			Mul(decimal.NewFromFloat(groupRatio))
+
+		quota = int(totalQuotaDec.IntPart())
+	}
+
+	if quota < 0 {
+		quota = 0
+	}
+
+	// 5. 检查用户额度是否足够
+	userQuota, err := model.GetUserQuota(user.Id, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DirectConsumeResponse{
+			Success: false,
+			Message: "failed to check user quota",
+		})
+		return
+	}
+
+	if userQuota < quota {
+		c.JSON(http.StatusPaymentRequired, DirectConsumeResponse{
+			Success: false,
+			Message: fmt.Sprintf("insufficient user quota, required: %s, available: %s",
+				logger.FormatQuota(quota), logger.FormatQuota(userQuota)),
+		})
+		return
+	}
+
+	// 6. 检查令牌额度是否足够
+	if !token.UnlimitedQuota && token.RemainQuota < quota {
+		c.JSON(http.StatusPaymentRequired, DirectConsumeResponse{
+			Success: false,
+			Message: fmt.Sprintf("insufficient token quota, required: %s, available: %s",
+				logger.FormatQuota(quota), logger.FormatQuota(token.RemainQuota)),
+		})
+		return
+	}
+
+	// 7. 构建 RelayInfo 用于记录日志
+	relayInfo := &relaycommon.RelayInfo{
+		UserId:            user.Id,
+		TokenId:           token.Id,
+		TokenKey:          req.TokenKey,
+		Group:             group,
+		TokenUnlimited:    token.UnlimitedQuota,
+		IsStream:          false,
+		UpstreamModelName: modelName,
+		StartTime:         time.Now(),
+		FirstResponseTime: time.Now(),
+	}
+
+	// 8. 执行扣费
+	err = service.PostConsumeQuota(relayInfo, quota, 0, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, DirectConsumeResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to consume quota: %v", err),
+		})
+		return
+	}
+
+	// 9. 更新用户和渠道统计
+	model.UpdateUserUsedQuotaAndRequestCount(user.Id, quota)
+	model.CacheUpdateUserQuota(user.Id)
+
+	// 10. 记录消费日志
+	if common.LogConsumeEnabled {
+		otherInfo := service.GenerateTextOtherInfo(c, relayInfo, modelRatio, groupRatio,
+			completionRatio, float64(cacheTokens), cacheRatio, modelPrice, 1.0)
+
+		content := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
+		if usePrice {
+			content = fmt.Sprintf("模型价格 $%.6f", modelPrice)
+		}
+
+		model.RecordConsumeLog(c, user.Id, model.RecordConsumeLogParams{
+			Username:         user.Username,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			ModelName:        modelName,
+			TokenName:        token.Name,
+			Quota:            quota,
+			Content:          content,
+			UseTimeSeconds:   0,
+			IsStream:         false,
+			Group:            group,
+			ChannelId:        nil, // 直接扣费没有渠道
+			TokenId:          token.Id,
+			OtherInfo:        otherInfo,
+		})
+	}
+
+	// 11. 获取扣费后的额度
+	userQuotaAfter, _ := model.GetUserQuota(user.Id, false)
+	tokenQuotaAfter := token.RemainQuota - quota
+	if token.UnlimitedQuota {
+		tokenQuotaAfter = -1
+	}
+
+	// 12. 返回成功响应
+	c.JSON(http.StatusOK, DirectConsumeResponse{
+		Success:          true,
+		Message:          "quota consumed successfully",
+		Quota:            quota,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		ModelName:        modelName,
+		UserQuota:        userQuotaAfter,
+		TokenQuota:       tokenQuotaAfter,
+	})
+}
