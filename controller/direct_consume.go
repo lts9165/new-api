@@ -222,15 +222,15 @@ func DirectConsume(c *gin.Context) {
 		TokenUnlimited:    token.UnlimitedQuota,
 		IsStream:          req.IsStream,
 		OriginModelName:   modelName,
-		UpstreamModelName: upstreamModelName,
-		IsModelMapped:     true, // 标记为已映射
 		StartTime:         now,
 		FirstResponseTime: firstResponseTime,
 		RequestURLPath:    "/api/consume",
 	}
-	// 初始化 ChannelMeta 避免空指针
+	// 初始化 ChannelMeta 避免空指针，并设置模型映射信息
 	relayInfo.ChannelMeta = &relaycommon.ChannelMeta{
-		ChannelId: 0, // 直接扣费没有渠道
+		ChannelId:         0,                 // 直接扣费没有渠道
+		UpstreamModelName: upstreamModelName, // 上游模型名称
+		IsModelMapped:     true,              // 标记为已映射
 	}
 
 	// 8. 执行扣费
