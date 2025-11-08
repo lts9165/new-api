@@ -17,6 +17,11 @@ var Price = 7.3
 var MinTopUp = 1
 var USDExchangeRate = 7.3
 
+// 虎皮椒支付配置
+var XunhuPayAppID = ""
+var XunhuPayAppSecret = ""
+var XunhuPayGateway = "https://api.xunhupay.com/payment/do.html"
+
 var PayMethods = []map[string]string{
 	{
 		"name":  "支付宝",

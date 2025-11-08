@@ -38,6 +38,7 @@ import InvitationCard from './InvitationCard';
 import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
+import QRCodePaymentModal from './modals/QRCodePaymentModal';
 
 const TopUp = () => {
   const { t } = useTranslation();
@@ -80,6 +81,10 @@ const TopUp = () => {
 
   // 账单Modal状态
   const [openHistory, setOpenHistory] = useState(false);
+
+  // 二维码支付Modal状态
+  const [openQRCode, setOpenQRCode] = useState(false);
+  const [qrCodeData, setQRCodeData] = useState(null);
 
   // 预设充值额度选项
   const [presetAmounts, setPresetAmounts] = useState([]);
@@ -209,8 +214,13 @@ const TopUp = () => {
           if (payWay === 'stripe') {
             // Stripe 支付回调处理
             window.open(data.pay_link, '_blank');
+          } else if (data.qr_code) {
+            // 虎皮椒二维码支付
+            setQRCodeData(data);
+            setOpen(false);
+            setOpenQRCode(true);
           } else {
-            // 普通支付表单提交
+            // 普通Epay支付表单提交
             let params = data;
             let url = res.data.url;
             let form = document.createElement('form');
@@ -500,6 +510,11 @@ const TopUp = () => {
     setOpenHistory(false);
   };
 
+  const handleQRCodeCancel = () => {
+    setOpenQRCode(false);
+    setQRCodeData(null);
+  };
+
   // 选择预设充值额度
   const selectPresetAmount = (preset) => {
     setTopUpCount(preset.value);
@@ -560,6 +575,14 @@ const TopUp = () => {
       <TopupHistoryModal
         visible={openHistory}
         onCancel={handleHistoryCancel}
+        t={t}
+      />
+
+      {/* 二维码支付模态框 */}
+      <QRCodePaymentModal
+        visible={openQRCode}
+        onCancel={handleQRCodeCancel}
+        paymentData={qrCodeData}
         t={t}
       />
 

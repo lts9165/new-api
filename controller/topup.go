@@ -154,6 +154,75 @@ func RequestEpay(c *gin.Context) {
 		return
 	}
 
+	// 检查是否使用虎皮椒支付
+	xunhuClient := service.GetXunhuPayClient()
+	useXunhuPay := xunhuClient != nil && operation_setting.XunhuPayAppID != ""
+
+	if useXunhuPay {
+		// 使用虎皮椒支付
+		callBackAddress := service.GetCallbackAddress()
+		returnUrl := system_setting.ServerAddress + "/console/log"
+		notifyUrl := callBackAddress + "/api/user/xunhupay/notify"
+		tradeNo := fmt.Sprintf("%s%d", common.GetRandomString(6), time.Now().Unix())
+		tradeNo = fmt.Sprintf("USR%dNO%s", id, tradeNo)
+
+		// 转换支付方式: wxpay -> wechat
+		paymentType := req.PaymentMethod
+		if paymentType == "wxpay" {
+			paymentType = "wechat"
+		}
+
+		// 调用虎皮椒API创建订单
+		payResp, err := xunhuClient.CreateOrder(
+			tradeNo,
+			payMoney,
+			fmt.Sprintf("TUC%d", req.Amount),
+			paymentType,
+			notifyUrl,
+			returnUrl,
+		)
+		if err != nil {
+			logger.Error(c, fmt.Sprintf("虎皮椒支付失败: %v", err))
+			c.JSON(200, gin.H{"message": "error", "data": "拉起支付失败: " + err.Error()})
+			return
+		}
+
+		// 保存订单
+		amount := req.Amount
+		if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+			dAmount := decimal.NewFromInt(int64(amount))
+			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+			amount = dAmount.Div(dQuotaPerUnit).IntPart()
+		}
+		topUp := &model.TopUp{
+			UserId:        id,
+			Amount:        amount,
+			Money:         payMoney,
+			TradeNo:       tradeNo,
+			PaymentMethod: req.PaymentMethod,
+			CreateTime:    time.Now().Unix(),
+			Status:        "pending",
+		}
+		err = topUp.Insert()
+		if err != nil {
+			c.JSON(200, gin.H{"message": "error", "data": "创建订单失败"})
+			return
+		}
+
+		// 返回二维码数据
+		c.JSON(200, gin.H{
+			"message": "success",
+			"data": gin.H{
+				"qr_code":   payResp.URLQRCode, // 二维码图片URL
+				"pay_url":   payResp.URL,       // 支付链接(手机端)
+				"trade_no":  tradeNo,           // 订单号
+				"expire_at": time.Now().Unix() + 300, // 5分钟后过期
+			},
+		})
+		return
+	}
+
+	// 使用原有的Epay支付
 	callBackAddress := service.GetCallbackAddress()
 	returnUrl, _ := url.Parse(system_setting.ServerAddress + "/console/log")
 	notifyUrl, _ := url.Parse(callBackAddress + "/api/user/epay/notify")
@@ -387,4 +456,117 @@ func AdminCompleteTopUp(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+// GetTopUpStatus 查询订单状态(用于前端轮询)
+func GetTopUpStatus(c *gin.Context) {
+	tradeNo := c.Param("trade_no")
+	if tradeNo == "" {
+		common.ApiErrorMsg(c, "订单号不能为空")
+		return
+	}
+
+	userId := c.GetInt("id")
+	topUp := model.GetTopUpByTradeNo(tradeNo)
+	if topUp == nil {
+		common.ApiErrorMsg(c, "订单不存在")
+		return
+	}
+
+	// 验证订单所属用户
+	if topUp.UserId != userId {
+		common.ApiErrorMsg(c, "无权查询此订单")
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"status":      topUp.Status,
+		"trade_no":    topUp.TradeNo,
+		"amount":      topUp.Amount,
+		"money":       topUp.Money,
+		"create_time": topUp.CreateTime,
+	})
+}
+
+// XunhuPayNotify 虎皮椒支付回调
+func XunhuPayNotify(c *gin.Context) {
+	// 获取所有POST参数
+	params := make(map[string]string)
+	for key, values := range c.Request.Form {
+		if len(values) > 0 {
+			params[key] = values[0]
+		}
+	}
+
+	// 获取虎皮椒客户端
+	client := service.GetXunhuPayClient()
+	if client == nil {
+		log.Println("虎皮椒回调失败: 未找到配置信息")
+		c.String(200, "fail")
+		return
+	}
+
+	// 验证签名
+	if !client.VerifyCallback(params) {
+		log.Println("虎皮椒回调签名验证失败")
+		c.String(200, "fail")
+		return
+	}
+
+	// 获取关键参数
+	tradeOrderID := params["trade_order_id"]
+	status := params["status"]
+
+	log.Printf("虎皮椒回调: 订单号=%s, 状态=%s", tradeOrderID, status)
+
+	// 只处理支付成功的回调
+	if status != "OD" { // OD表示支付成功
+		log.Printf("虎皮椒回调: 订单状态非成功 status=%s", status)
+		c.String(200, "success")
+		return
+	}
+
+	// 订单级锁
+	LockOrder(tradeOrderID)
+	defer UnlockOrder(tradeOrderID)
+
+	// 获取订单
+	topUp := model.GetTopUpByTradeNo(tradeOrderID)
+	if topUp == nil {
+		log.Printf("虎皮椒回调: 订单不存在 trade_no=%s", tradeOrderID)
+		c.String(200, "fail")
+		return
+	}
+
+	// 检查订单状态
+	if topUp.Status != "pending" {
+		log.Printf("虎皮椒回调: 订单状态已处理 trade_no=%s, status=%s", tradeOrderID, topUp.Status)
+		c.String(200, "success")
+		return
+	}
+
+	// 更新订单状态
+	topUp.Status = "success"
+	err := topUp.Update()
+	if err != nil {
+		log.Printf("虎皮椒回调: 更新订单失败 %v", topUp)
+		c.String(200, "fail")
+		return
+	}
+
+	// 增加用户额度
+	dAmount := decimal.NewFromInt(int64(topUp.Amount))
+	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+	quotaToAdd := int(dAmount.Mul(dQuotaPerUnit).IntPart())
+	err = model.IncreaseUserQuota(topUp.UserId, quotaToAdd, true)
+	if err != nil {
+		log.Printf("虎皮椒回调: 更新用户失败 %v", topUp)
+		c.String(200, "fail")
+		return
+	}
+
+	log.Printf("虎皮椒回调: 处理成功 trade_no=%s, user_id=%d, quota=%d", tradeOrderID, topUp.UserId, quotaToAdd)
+	model.RecordLog(topUp.UserId, model.LogTypeTopup, fmt.Sprintf("使用虎皮椒支付成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money))
+
+	c.String(200, "success")
 }
