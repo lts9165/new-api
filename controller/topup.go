@@ -182,7 +182,7 @@ func RequestEpay(c *gin.Context) {
 			returnUrl,
 		)
 		if err != nil {
-			logger.Error(c, fmt.Sprintf("虎皮椒支付失败: %v", err))
+			log.Printf("虎皮椒支付失败: %v", err)
 			c.JSON(200, gin.H{"message": "error", "data": "拉起支付失败: " + err.Error()})
 			return
 		}
