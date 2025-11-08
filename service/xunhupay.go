@@ -42,7 +42,7 @@ type XunhuPayRequest struct {
 
 // XunhuPayResponse 虎皮椒支付响应
 type XunhuPayResponse struct {
-	OpenID    string `json:"openid"`     // 订单ID
+	OpenID    int64  `json:"openid"`     // 订单ID
 	URLQRCode string `json:"url_qrcode"` // 二维码图片URL(PC端扫码)
 	URL       string `json:"url"`        // 支付链接(手机端)
 	ErrCode   int    `json:"errcode"`    // 错误码
@@ -202,7 +202,7 @@ func (c *XunhuPayClient) CreateOrder(
 
 	// 验证响应签名(可选,增强安全性)
 	respParams := map[string]string{
-		"openid":     payResp.OpenID,
+		"openid":     strconv.FormatInt(payResp.OpenID, 10),
 		"url_qrcode": payResp.URLQRCode,
 		"url":        payResp.URL,
 		"errcode":    strconv.Itoa(payResp.ErrCode),
