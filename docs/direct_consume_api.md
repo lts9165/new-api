@@ -27,7 +27,10 @@
   "prompt_tokens": 100,            // 必填: 输入token数，最小值为0
   "completion_tokens": 50,         // 必填: 输出token数，最小值为0
   "cache_tokens": 0,               // 可选: 缓存token数，默认为0
-  "image_tokens": 0                // 可选: 图片token数，默认为0
+  "image_tokens": 0,               // 可选: 图片token数，默认为0
+  "is_stream": false,              // 可选: 是否流式调用，默认为false
+  "use_time": 2500,                // 可选: 总用时（毫秒），默认为0
+  "first_use_time": 450            // 可选: 首字用时（毫秒），默认为0
 }
 ```
 
@@ -41,6 +44,9 @@
 | completion_tokens | int | 是 | 输出tokens数量，必须 >= 0 |
 | cache_tokens | int | 否 | 缓存tokens数量，默认为0 |
 | image_tokens | int | 否 | 图片tokens数量，默认为0 |
+| is_stream | bool | 否 | 是否为流式调用，默认为false |
+| use_time | int | 否 | 总用时（毫秒），默认为0 |
+| first_use_time | int | 否 | 首字用时（毫秒），默认为0，会记录在日志的other.frt字段中 |
 
 ## 响应格式
 
@@ -136,7 +142,7 @@
 
 ## 计费逻辑
 
-系统支持两种计费模式：
+系统支持两种计费模式，**使用令牌的分组倍率进行计算**：
 
 ### 1. 基于倍率模式
 
@@ -158,9 +164,13 @@ total_quota = model_price × total_tokens × quota_per_unit × group_ratio
 - `completion_ratio`: 输出/输入倍率
 - `cache_ratio`: 缓存tokens倍率
 - `image_ratio`: 图片tokens倍率
-- `group_ratio`: 用户组倍率
+- `group_ratio`: **令牌的分组倍率**（如果令牌没有分组，则使用用户分组）
 - `model_price`: 模型单价
 - `quota_per_unit`: 单位额度常量
+
+**重要说明**：
+- 倍率优先使用令牌的分组，如果令牌没有设置分组，才使用用户的分组
+- 日志中的分组字段会记录使用的令牌分组
 
 ## 功能特性
 
@@ -189,13 +199,16 @@ total_quota = model_price × total_tokens × quota_per_unit × group_ratio
 ### cURL示例
 
 ```bash
-curl -X POST http://your-domain/api/consume \
+curl -X POST https://your-domain/api/consume \
   -H "Content-Type: application/json" \
   -d '{
     "token": "sk-xxxxxx",
     "model": "gpt-4",
     "prompt_tokens": 100,
-    "completion_tokens": 50
+    "completion_tokens": 50,
+    "is_stream": true,
+    "use_time": 2500,
+    "first_use_time": 450
   }'
 ```
 
@@ -204,14 +217,17 @@ curl -X POST http://your-domain/api/consume \
 ```python
 import requests
 
-url = "http://your-domain/api/consume"
+url = "https://your-domain/api/consume"
 payload = {
     "token": "sk-xxxxxx",
     "model": "gpt-4",
     "prompt_tokens": 100,
     "completion_tokens": 50,
     "cache_tokens": 0,
-    "image_tokens": 0
+    "image_tokens": 0,
+    "is_stream": True,
+    "use_time": 2500,        # 总用时2500毫秒
+    "first_use_time": 450    # 首字用时450毫秒
 }
 
 response = requests.post(url, json=payload)

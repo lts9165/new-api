@@ -22,6 +22,9 @@ type DirectConsumeRequest struct {
 	CompletionTokens int    `json:"completion_tokens" binding:"required,min=0"`
 	CacheTokens      int    `json:"cache_tokens"`
 	ImageTokens      int    `json:"image_tokens"`
+	IsStream         bool   `json:"is_stream"`           // 是否流式调用
+	UseTime          int    `json:"use_time"`            // 总用时（毫秒）
+	FirstUseTime     int    `json:"first_use_time"`      // 首字用时（毫秒）
 }
 
 type DirectConsumeResponse struct {
@@ -65,6 +68,9 @@ func DirectConsume(c *gin.Context) {
 	}
 	logger.LogInfo(c, fmt.Sprintf("Token validated: id=%d, name=%s", token.Id, token.Name))
 
+	// 设置token name到context，用于日志记录
+	c.Set("token_name", token.Name)
+
 	if token.Status != common.TokenStatusEnabled {
 		c.JSON(http.StatusForbidden, DirectConsumeResponse{
 			Success: false,
@@ -100,8 +106,17 @@ func DirectConsume(c *gin.Context) {
 		return
 	}
 
-	// 3. 获取用户组信息
-	group := user.Group
+	// 设置username到context，用于日志记录
+	c.Set("username", user.Username)
+
+	// 3. 获取用户组信息和令牌组信息
+	userGroup := user.Group
+	tokenGroup := token.Group
+	// 使用令牌的分组来计算倍率
+	usingGroup := tokenGroup
+	if usingGroup == "" {
+		usingGroup = userGroup
+	}
 
 	// 4. 计算消耗
 	modelName := req.Model
@@ -111,12 +126,12 @@ func DirectConsume(c *gin.Context) {
 	imageTokens := req.ImageTokens
 	totalTokens := promptTokens + completionTokens
 
-	// 获取模型价格配置
+	// 获取模型价格配置（使用令牌分组）
 	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
 	completionRatio := ratio_setting.GetCompletionRatio(modelName)
 	cacheRatio, _ := ratio_setting.GetCacheRatio(modelName)
 	imageRatio, _ := ratio_setting.GetImageRatio(modelName)
-	groupRatio := ratio_setting.GetGroupRatio(group)
+	groupRatio := ratio_setting.GetGroupRatio(usingGroup) // 使用令牌分组
 	modelPrice, usePrice := ratio_setting.GetModelPrice(modelName, false)
 
 	var quota int
@@ -187,17 +202,24 @@ func DirectConsume(c *gin.Context) {
 	}
 
 	// 7. 构建 RelayInfo 用于记录日志
+	now := time.Now()
+	// 计算首字响应时间（毫秒转换）
+	firstResponseTime := now
+	if req.FirstUseTime > 0 {
+		firstResponseTime = now.Add(time.Duration(req.FirstUseTime) * time.Millisecond)
+	}
+
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:            user.Id,
 		TokenId:           token.Id,
 		TokenKey:          req.TokenKey,
-		UsingGroup:        group,
-		UserGroup:         group,
+		UsingGroup:        usingGroup, // 使用令牌分组
+		UserGroup:         userGroup,  // 用户分组
 		TokenUnlimited:    token.UnlimitedQuota,
-		IsStream:          false,
+		IsStream:          req.IsStream,
 		OriginModelName:   modelName,
-		StartTime:         time.Now(),
-		FirstResponseTime: time.Now(),
+		StartTime:         now,
+		FirstResponseTime: firstResponseTime,
 		RequestURLPath:    "/api/consume",
 	}
 	// 初始化 ChannelMeta 避免空指针
@@ -233,6 +255,12 @@ func DirectConsume(c *gin.Context) {
 			content = fmt.Sprintf("模型价格 $%.6f", modelPrice)
 		}
 
+		// 计算用时（秒）
+		useTimeSeconds := req.UseTime / 1000
+		if useTimeSeconds == 0 && req.UseTime > 0 {
+			useTimeSeconds = 1 // 至少1秒
+		}
+
 		model.RecordConsumeLog(c, user.Id, model.RecordConsumeLogParams{
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
@@ -240,10 +268,10 @@ func DirectConsume(c *gin.Context) {
 			TokenName:        token.Name,
 			Quota:            quota,
 			Content:          content,
-			UseTimeSeconds:   0,
-			IsStream:         false,
-			Group:            group,
-			ChannelId:        0, // 直接扣费没有渠道
+			UseTimeSeconds:   useTimeSeconds,
+			IsStream:         req.IsStream,
+			Group:            usingGroup, // 使用令牌分组
+			ChannelId:        0,          // 直接扣费没有渠道
 			TokenId:          token.Id,
 			Other:            otherInfo,
 		})
