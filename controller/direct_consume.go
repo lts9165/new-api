@@ -247,8 +247,15 @@ func DirectConsume(c *gin.Context) {
 	// 10. 记录消费日志
 	if common.LogConsumeEnabled {
 		logger.LogInfo(c, "Recording consume log")
+
+		// 如果使用的是令牌分组（非用户分组），userGroupRatio设为-1表示专属倍率
+		userGroupRatio := 1.0
+		if tokenGroup != "" && tokenGroup != userGroup {
+			userGroupRatio = -1
+		}
+
 		otherInfo := service.GenerateTextOtherInfo(c, relayInfo, modelRatio, groupRatio,
-			completionRatio, cacheTokens, cacheRatio, modelPrice, 1.0)
+			completionRatio, cacheTokens, cacheRatio, modelPrice, userGroupRatio)
 
 		content := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
 		if usePrice {
