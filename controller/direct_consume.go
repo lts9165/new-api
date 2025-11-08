@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -209,6 +210,9 @@ func DirectConsume(c *gin.Context) {
 		firstResponseTime = now.Add(time.Duration(req.FirstUseTime) * time.Millisecond)
 	}
 
+	// 生成上游模型名称（添加供应商前缀）
+	upstreamModelName := generateUpstreamModelName(modelName)
+
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:            user.Id,
 		TokenId:           token.Id,
@@ -218,6 +222,8 @@ func DirectConsume(c *gin.Context) {
 		TokenUnlimited:    token.UnlimitedQuota,
 		IsStream:          req.IsStream,
 		OriginModelName:   modelName,
+		UpstreamModelName: upstreamModelName,
+		IsModelMapped:     true, // 标记为已映射
 		StartTime:         now,
 		FirstResponseTime: firstResponseTime,
 		RequestURLPath:    "/api/consume",
@@ -309,4 +315,57 @@ func DirectConsume(c *gin.Context) {
 		UserQuota:        userQuotaAfter,
 		TokenQuota:       tokenQuotaAfter,
 	})
+}
+
+// generateUpstreamModelName 根据模型名称生成上游模型名称（添加供应商前缀）
+func generateUpstreamModelName(modelName string) string {
+	// OpenAI 模型
+	if strings.HasPrefix(modelName, "gpt-") ||
+	   strings.HasPrefix(modelName, "o1-") ||
+	   strings.HasPrefix(modelName, "o3-") ||
+	   modelName == "chatgpt-4o-latest" ||
+	   strings.HasPrefix(modelName, "text-embedding") ||
+	   strings.HasPrefix(modelName, "dall-e") ||
+	   strings.HasPrefix(modelName, "tts-") ||
+	   strings.HasPrefix(modelName, "whisper-") {
+		return "openai/" + modelName
+	}
+
+	// Anthropic Claude 模型
+	if strings.HasPrefix(modelName, "claude-") {
+		return "anthropic/" + modelName
+	}
+
+	// Google Gemini 模型
+	if strings.HasPrefix(modelName, "gemini-") {
+		return "google/" + modelName
+	}
+
+	// Meta Llama 模型
+	if strings.HasPrefix(modelName, "llama-") || strings.Contains(modelName, "llama") {
+		return "meta/" + modelName
+	}
+
+	// Mistral 模型
+	if strings.HasPrefix(modelName, "mistral-") || strings.HasPrefix(modelName, "mixtral-") {
+		return "mistral/" + modelName
+	}
+
+	// Cohere 模型
+	if strings.HasPrefix(modelName, "command-") || strings.HasPrefix(modelName, "embed-") {
+		return "cohere/" + modelName
+	}
+
+	// DeepSeek 模型
+	if strings.HasPrefix(modelName, "deepseek-") {
+		return "deepseek/" + modelName
+	}
+
+	// Qwen 模型
+	if strings.HasPrefix(modelName, "qwen-") {
+		return "qwen/" + modelName
+	}
+
+	// 默认返回 openai/ 前缀（兼容未知模型）
+	return "openai/" + modelName
 }
