@@ -198,6 +198,11 @@ func DirectConsume(c *gin.Context) {
 		OriginModelName:   modelName,
 		StartTime:         time.Now(),
 		FirstResponseTime: time.Now(),
+		RequestURLPath:    "/api/consume",
+	}
+	// 初始化 ChannelMeta 避免空指针
+	relayInfo.ChannelMeta = &relaycommon.ChannelMeta{
+		ChannelId: 0, // 直接扣费没有渠道
 	}
 
 	// 8. 执行扣费
