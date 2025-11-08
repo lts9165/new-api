@@ -48,7 +48,7 @@ func DirectConsume(c *gin.Context) {
 	}
 
 	// 1. 验证令牌
-	token, err := model.GetTokenByKey(req.TokenKey)
+	token, err := model.GetTokenByKey(req.TokenKey, false)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, DirectConsumeResponse{
 			Success: false,
@@ -93,14 +93,7 @@ func DirectConsume(c *gin.Context) {
 	}
 
 	// 3. 获取用户组信息
-	group, err := model.GetGroupByUserId(user.Id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, DirectConsumeResponse{
-			Success: false,
-			Message: "failed to get user group",
-		})
-		return
-	}
+	group := user.Group
 
 	// 4. 计算消耗
 	modelName := req.Model
@@ -111,7 +104,7 @@ func DirectConsume(c *gin.Context) {
 	totalTokens := promptTokens + completionTokens
 
 	// 获取模型价格配置
-	modelRatio, _ := ratio_setting.GetModelRatio(modelName)
+	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
 	completionRatio := ratio_setting.GetCompletionRatio(modelName)
 	cacheRatio, _ := ratio_setting.GetCacheRatio(modelName)
 	imageRatio, _ := ratio_setting.GetImageRatio(modelName)
@@ -220,7 +213,6 @@ func DirectConsume(c *gin.Context) {
 		}
 
 		model.RecordConsumeLog(c, user.Id, model.RecordConsumeLogParams{
-			Username:         user.Username,
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
 			ModelName:        modelName,
@@ -230,9 +222,9 @@ func DirectConsume(c *gin.Context) {
 			UseTimeSeconds:   0,
 			IsStream:         false,
 			Group:            group,
-			ChannelId:        nil, // 直接扣费没有渠道
+			ChannelId:        0, // 直接扣费没有渠道
 			TokenId:          token.Id,
-			OtherInfo:        otherInfo,
+			Other:            otherInfo,
 		})
 	}
 
