@@ -56,71 +56,7 @@ const FooterBar = () => {
               />
             </div>
 
-            <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 w-full'>
-              <div className='text-left'>
-                <p className='!text-semi-color-text-0 font-semibold mb-5'>
-                  {t('关于我们')}
-                </p>
-                <div className='flex flex-col gap-4'>
-                  <a
-                    href='https://docs.newapi.pro/wiki/project-introduction/'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='!text-semi-color-text-1'
-                  >
-                    {t('关于项目')}
-                  </a>
-                  <a
-                    href='https://docs.newapi.pro/support/community-interaction/'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='!text-semi-color-text-1'
-                  >
-                    {t('联系我们')}
-                  </a>
-                  <a
-                    href='https://docs.newapi.pro/wiki/features-introduction/'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='!text-semi-color-text-1'
-                  >
-                    {t('功能特性')}
-                  </a>
-                </div>
-              </div>
-
-              <div className='text-left'>
-                <p className='!text-semi-color-text-0 font-semibold mb-5'>
-                  {t('文档')}
-                </p>
-                <div className='flex flex-col gap-4'>
-                  <a
-                    href='https://docs.newapi.pro/getting-started/'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='!text-semi-color-text-1'
-                  >
-                    {t('快速开始')}
-                  </a>
-                  <a
-                    href='https://docs.newapi.pro/installation/'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='!text-semi-color-text-1'
-                  >
-                    {t('安装指南')}
-                  </a>
-                  <a
-                    href='https://docs.newapi.pro/api/'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='!text-semi-color-text-1'
-                  >
-                    {t('API 文档')}
-                  </a>
-                </div>
-              </div>
-
+            <div className='grid grid-cols-1 sm:grid-cols-2 gap-8 w-full'>
               <div className='text-left'>
                 <p className='!text-semi-color-text-0 font-semibold mb-5'>
                   {t('相关项目')}
@@ -188,25 +124,11 @@ const FooterBar = () => {
           </div>
         )}
 
-        <div className='flex flex-col md:flex-row items-center justify-between w-full max-w-[1110px] gap-6'>
+        <div className='flex flex-col md:flex-row items-center justify-center w-full max-w-[1110px] gap-6'>
           <div className='flex flex-wrap items-center gap-2'>
             <Typography.Text className='text-sm !text-semi-color-text-1'>
               © {currentYear} {systemName}. {t('版权所有')}
             </Typography.Text>
-          </div>
-
-          <div className='text-sm'>
-            <span className='!text-semi-color-text-1'>
-              {t('设计与开发由')}{' '}
-            </span>
-            <a
-              href='https://github.com/QuantumNous/new-api'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='!text-semi-color-primary font-medium'
-            >
-              New API
-            </a>
           </div>
         </div>
       </footer>
@@ -226,17 +148,6 @@ const FooterBar = () => {
             className='custom-footer'
             dangerouslySetInnerHTML={{ __html: footer }}
           ></div>
-          <div className='absolute bottom-2 right-4 text-xs !text-semi-color-text-2 opacity-70'>
-            <span>{t('设计与开发由')} </span>
-            <a
-              href='https://github.com/QuantumNous/new-api'
-              target='_blank'
-              rel='noopener noreferrer'
-              className='!text-semi-color-primary font-medium'
-            >
-              New API
-            </a>
-          </div>
         </div>
       ) : (
         customFooter

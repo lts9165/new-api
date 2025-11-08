@@ -46,8 +46,8 @@ export default function SettingsHeaderNavModules(props) {
       enabled: true,
       requireAuth: false, // 默认不需要登录鉴权
     },
-    docs: true,
-    about: true,
+    docs: false,
+    about: false,
   });
 
   // 处理顶栏模块配置变更
@@ -86,8 +86,8 @@ export default function SettingsHeaderNavModules(props) {
         enabled: true,
         requireAuth: false,
       },
-      docs: true,
-      about: true,
+      docs: false,
+      about: false,
     };
     setHeaderNavModules(defaultModules);
     showSuccess(t('已重置为默认配置'));
@@ -152,8 +152,8 @@ export default function SettingsHeaderNavModules(props) {
             enabled: true,
             requireAuth: false,
           },
-          docs: true,
-          about: true,
+          docs: false,
+          about: false,
         };
         setHeaderNavModules(defaultModules);
       }
