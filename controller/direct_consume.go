@@ -38,8 +38,11 @@ type DirectConsumeResponse struct {
 
 // DirectConsume 直接扣费接口，不调用上游API，仅根据传入的tokens数据进行扣费
 func DirectConsume(c *gin.Context) {
+	logger.LogInfo(c, "DirectConsume API called")
+
 	var req DirectConsumeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.LogError(c, fmt.Sprintf("Failed to bind JSON: %v", err))
 		c.JSON(http.StatusBadRequest, DirectConsumeResponse{
 			Success: false,
 			Message: fmt.Sprintf("invalid request: %v", err),
@@ -47,15 +50,20 @@ func DirectConsume(c *gin.Context) {
 		return
 	}
 
+	logger.LogInfo(c, fmt.Sprintf("DirectConsume request: token=%s, model=%s, prompt_tokens=%d, completion_tokens=%d",
+		req.TokenKey, req.Model, req.PromptTokens, req.CompletionTokens))
+
 	// 1. 验证令牌
 	token, err := model.GetTokenByKey(req.TokenKey, false)
 	if err != nil {
+		logger.LogError(c, fmt.Sprintf("Token validation failed: %v", err))
 		c.JSON(http.StatusUnauthorized, DirectConsumeResponse{
 			Success: false,
 			Message: "invalid token",
 		})
 		return
 	}
+	logger.LogInfo(c, fmt.Sprintf("Token validated: id=%d, name=%s", token.Id, token.Name))
 
 	if token.Status != common.TokenStatusEnabled {
 		c.JSON(http.StatusForbidden, DirectConsumeResponse{
@@ -146,6 +154,9 @@ func DirectConsume(c *gin.Context) {
 		quota = 0
 	}
 
+	logger.LogInfo(c, fmt.Sprintf("Calculated quota: %d, modelRatio=%.2f, groupRatio=%.2f, usePrice=%v",
+		quota, modelRatio, groupRatio, usePrice))
+
 	// 5. 检查用户额度是否足够
 	userQuota, err := model.GetUserQuota(user.Id, false)
 	if err != nil {
@@ -190,20 +201,25 @@ func DirectConsume(c *gin.Context) {
 	}
 
 	// 8. 执行扣费
+	logger.LogInfo(c, fmt.Sprintf("Starting quota consumption: quota=%d, user_id=%d, token_id=%d", quota, user.Id, token.Id))
 	err = service.PostConsumeQuota(relayInfo, quota, 0, true)
 	if err != nil {
+		logger.LogError(c, fmt.Sprintf("Failed to consume quota: %v", err))
 		c.JSON(http.StatusInternalServerError, DirectConsumeResponse{
 			Success: false,
 			Message: fmt.Sprintf("failed to consume quota: %v", err),
 		})
 		return
 	}
+	logger.LogInfo(c, "Quota consumed successfully")
 
 	// 9. 更新用户统计
 	model.UpdateUserUsedQuotaAndRequestCount(user.Id, quota)
+	logger.LogInfo(c, "User stats updated")
 
 	// 10. 记录消费日志
 	if common.LogConsumeEnabled {
+		logger.LogInfo(c, "Recording consume log")
 		otherInfo := service.GenerateTextOtherInfo(c, relayInfo, modelRatio, groupRatio,
 			completionRatio, cacheTokens, cacheRatio, modelPrice, 1.0)
 
@@ -226,6 +242,9 @@ func DirectConsume(c *gin.Context) {
 			TokenId:          token.Id,
 			Other:            otherInfo,
 		})
+		logger.LogInfo(c, "Consume log recorded")
+	} else {
+		logger.LogInfo(c, "Consume log disabled")
 	}
 
 	// 11. 获取扣费后的额度
@@ -236,6 +255,9 @@ func DirectConsume(c *gin.Context) {
 	}
 
 	// 12. 返回成功响应
+	logger.LogInfo(c, fmt.Sprintf("DirectConsume completed successfully: quota=%d, user_quota_after=%d, token_quota_after=%d",
+		quota, userQuotaAfter, tokenQuotaAfter))
+
 	c.JSON(http.StatusOK, DirectConsumeResponse{
 		Success:          true,
 		Message:          "quota consumed successfully",
