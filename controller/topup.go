@@ -576,7 +576,7 @@ func XunhuPayNotify(c *gin.Context) {
 	}
 
 	log.Printf("虎皮椒回调: 处理成功 trade_no=%s, user_id=%d, quota=%d", tradeOrderID, topUp.UserId, quotaToAdd)
-	model.RecordLog(topUp.UserId, model.LogTypeTopup, fmt.Sprintf("使用虎皮椒支付成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money))
+	model.RecordLog(topUp.UserId, model.LogTypeTopup, fmt.Sprintf("使用微信支付成功，充值金额: %v 额度，支付金额：%d", logger.LogQuota(quotaToAdd), topUp.Amount))
 
 	c.String(200, "success")
 }
