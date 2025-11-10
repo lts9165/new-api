@@ -179,8 +179,8 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
-		// 直接扣费接口
-		apiRouter.POST("/consume", middleware.CriticalRateLimit(), controller.DirectConsume)
+		// 直接扣费接口（移除限流，避免频繁调用时触发"请求过多"错误）
+		apiRouter.POST("/consume", controller.DirectConsume)
 
 		redemptionRoute := apiRouter.Group("/redemption")
 		redemptionRoute.Use(middleware.AdminAuth())
